@@ -1,0 +1,281 @@
+---
+title: "Titanic"
+author: "Ashish Pal"
+date: "October 5, 2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Titanic dataset from Kaggle
+
+#Frame - 
+1. Analysis of factors/Variables which will affect Survival rate.
+3. Prediction  of Survival for test data
+
+# Acquire 
+```{r}
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library('caret') 
+library('randomForest') 
+library('rpart')
+library('rpart.plot')
+library('car')
+library('e1071')
+setwd("C:/Users/Ashish/Desktop/DataSets/Titanic")
+train_t = read.csv("train.csv" ,stringsAsFactors = F)
+test_t = read.csv("test.csv",stringsAsFactors = F)
+str(train_t)
+head(test_t)
+
+```
+
+# Refine & Transform 
+```{r}
+# Let's analyse Data and different variables
+# clearly Survived is a output (dependent variable) and others are independent variable.
+
+# let's find out missing or NA values - 
+
+colSums(is.na(train_t))
+ 
+colSums(train_t == '')
+### Let's convert Empty embarked variable with max occuring one - 
+table(train_t$Embarked)
+train_t$Embarked[train_t$Embarked == ""]="S"
+table(train_t$Embarked)
+### Let's check number of values in each variable to distinguish them - 
+
+apply(train_t,2, function(x) length(unique(x)))
+### This clearly shows Survived , Pclass , Sex, Embarked are factor variable. 
+
+cols=c("Survived","Pclass","Sex","Embarked")
+for (i in cols){
+  train_t[,i]=as.factor(train_t[,i])
+}
+
+str(train_t)
+```
+
+## Feature Engineering/Transform 
+
+```{r}
+### As we can see we can extract information from name variable. 
+train_t$title = gsub('(.*, )|(\\..*)', '', train_t$Name)
+table(train_t$title)
+
+# Titles with very low cell counts to be combined to "rare" level
+rare_title <- c('Dona', 'Lady', 'the Countess','Capt', 'Col', 'Don', 
+                'Dr', 'Major', 'Rev', 'Sir', 'Jonkheer')
+
+# Also reassign mlle, ms, and mme accordingly
+train_t$title[train_t$title == 'Mlle']        <- 'Miss' 
+train_t$title[train_t$title == 'Ms']          <- 'Miss'
+train_t$title[train_t$title == 'Mme']         <- 'Mrs' 
+train_t$title[train_t$title %in% rare_title]  <- 'Rare Title'
+
+# Show title counts by sex again
+table(train_t$Sex, train_t$title)
+
+str(train_t)
+```
+## Explore 
+### We can see Pclass , Sex , Age , sibsp & Parch , Title and Embarked could be major Factors which can help in analsing survived variable and trend. 
+
+##Exploratory Analysis on Pclass & Sexx
+```{r}
+# Lets visualize the relationship between Sex & survival
+ggplot(train_t) + aes(Sex,fill = factor(Survived))+geom_bar()+
+ggtitle("Sex v/s Survival Rate")+
+xlab("Sex") +
+ylab("Total Count") +
+labs(fill = "Survived") 
+
+# This clearly shows that Probablilty/chance of Survival for female is much more for than male. 
+
+
+# Lets visualize the relationship between Pclass & survival
+ggplot(train_t) + aes(Pclass,fill = factor(Survived))+geom_bar()+
+ggtitle("Pclass v/s Survival Rate")+
+xlab("Pclass") +
+ylab("Total Count") +
+labs(fill = "Survived")
+
+## First class Survival rate is far more better than the 3rd class  
+## No doubt Rich peope having better Survival rate than the poor
+
+# Let's Visualize the 3-way relationship of sex, pclass, and survival
+ggplot(train_t, aes(x = Sex, fill = Survived)) +
+geom_bar() +
+facet_wrap(~Pclass) + 
+ggtitle("3D view of sex, pclass, and survival") +
+xlab("Sex") +
+ylab("Total Count") +
+labs(fill = "Survived")
+
+##In all the class female Survival rate is better than Men
+
+```
+##Exploratory Analysis on Title
+
+```{r}
+ggplot(train_t,aes(x = title,fill=factor(Survived))) +
+  geom_bar() +
+  ggtitle("Title V/S Survival rate")+
+  xlab("Title") +
+  ylab("Total Count") +
+  labs(fill = "Survived") 
+
+##In the titanic you are Mr then there is less chance of survival, Miss and Mrs having better survival rate then Master and Officer 
+
+### Visualize the 3-way of relationship of Title, Pclass, and Survival
+
+ggplot(train_t, aes(x = title, fill = Survived)) +
+  geom_bar() +
+  facet_wrap(~Pclass) + 
+  ggtitle("3-way relationship of Title, Pclass, and Survival") +
+  xlab("Title") +
+  ylab("Total Count") +
+  labs(fill = "Survived")
+
+##Master in 1st and 2nd class has 100% Survival where has Mrs and Miss having 90% chance of Survival in 1st and 2nd class 
+##Since Title mostly depending on Age (except few cases), I will use title in place of age which has 263 missing observation
+
+```
+## Exploratory Analysis on Family
+
+```{r}
+# Lets create a Family size using Sibsp and Parch
+
+
+train_t$FamilySize <-train_t$SibSp + train_t$Parch + 1
+
+train_t$FamilySized[train_t$FamilySize == 1]   <- 'Single'
+train_t$FamilySized[train_t$FamilySize < 5 & train_t$FamilySize >= 2]   <- 'Small'
+train_t$FamilySized[train_t$FamilySize >= 5]   <- 'Big'
+
+train_t$FamilySized=as.factor(train_t$FamilySized)
+
+
+###Lets Visualize the Survival rate by Family size 
+ggplot(train_t,aes(x = FamilySized,fill=factor(Survived))) +
+  geom_bar() +
+  ggtitle("Family Size V/S Survival Rate") +
+  xlab("FamilySize") +
+  ylab("Total Count") +
+  labs(fill = "Survived") + 
+
+
+###Big Family in Titanic having worst survival rate then Smaller and Alone
+
+####Why Big Family has a probelm?, Check in the below visualization
+
+ggplot(train_t, aes(x = FamilySized, fill = Survived)) +
+  geom_bar() +
+  facet_wrap(~title) + 
+  ggtitle("3D View of Fmily Size, Title and Survival rate") +
+  xlab("family.size") +
+  ylab("Total Count") +
+  ylim(0,300) +
+  labs(fill = "Survived")
+
+
+
+##You are a Master in the Big Family your Survival rate is absolutely nill even though overall survival rate of master is very good
+
+
+ggplot(train_t, aes(x = FamilySized, fill = Survived)) +
+  geom_bar() +
+  facet_wrap(~Pclass) + 
+  ggtitle("3D View of Fmily Size, Title and Survival rate") +
+  xlab("family.size") +
+  ylab("Total Count") +
+  ylim(0,300) +
+  labs(fill = "Survived")
+
+### Now this clearly shows that max big families are from class 3 and hence survival rate is least.
+
+```
+##Exploratory Analysis on Embarked
+```{r}
+
+###is there any association between Survial rate and where he get into the Ship.   
+ ggplot(train_t,aes(x = Embarked,fill=factor(Survived))) +
+  geom_bar() +
+  ggtitle("Embarked vs Survival") +
+  xlab("Embarked") +
+  ylab("Total Count") +
+  labs(fill = "Survived") 
+
+# There is no correlation between survival rate and embarked.
+
+```
+
+#Model 
+
+
+```{r}
+str(train_t)
+feauter1<-train_t
+response <- as.factor(train_t$Survived) 
+feauter1$Survived=as.factor(train_t$Survived)
+
+###For Cross validation purpose will keep 20% of data aside from my orginal train set
+##This is just to check how well my data works for unseen data
+set.seed(500)
+ind=createDataPartition(feauter1$Survived,times=1,p=0.8,list=FALSE)
+train_val=feauter1[ind,]
+test_val=feauter1[-ind,]
+
+str(train_val)
+
+#Lets run Logistic regression model
+log.mod <- glm(Survived ~ Pclass+Sex+title+FamilySize, family = binomial(link=logit), 
+               data = train_val)
+###Check the summary
+summary(log.mod)
+
+confint(log.mod)
+
+###Predict train data
+train.probs <- predict(log.mod, data=train_val,type =  "response")
+table(train_val$Survived,train.probs>0.5)
+
+(397+196)/(397+196+78+43)
+
+###Logistic regression predicted train data with accuracy rate of 0.83 
+
+
+test.probs <- predict(log.mod, newdata=test_val,type =  "response")
+table(test_val$Survived,test.probs>0.5)
+
+(96+53)/(96+53+13+15)
+
+###Logistic regression predicted test data with accuracy rate of 0.84
+
+
+```
+# Infer
+
+## We can clearly see Title/ Sex , Family Size and Pclass are major Factors in Predicting Survival rate of each Passenger. 
+
+```{r}
+# Let's visualize
+ggplot(train_t, aes(x = FamilySized, fill = Survived)) +
+  geom_bar() +
+  facet_wrap( title ~ Pclass) + 
+  ggtitle("3D View of Fmily Size, Title and Survival rate") +
+  xlab("family.size") +
+  ylab("Total Count") +
+  ylim(0,300) +
+  labs(fill = "Survived")
+
+```
+
+##  -> Also we can Infer that Pclass 3 Adult Male having least Survival rate. 
+##  -> Pclass 1 Female childerns are having Highest Probabalilty of Survival. 
+##  -> Among Families Small families and Single People survival rate is much better than Big Families. 
