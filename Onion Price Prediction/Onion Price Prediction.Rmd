@@ -1,0 +1,153 @@
+---
+title: "LabWork"
+author: "Ashish Pal"
+date: "September 22, 2017"
+output:
+  html_document: default
+  pdf_document: default
+---
+## Analysis Onion Data for the year 2017 and predicting for future Year
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+# Reading libraries
+library(rvest)
+library(tidyr)
+library(dplyr)
+library(stringr)
+library(ggplot2)
+library(prophet)
+```
+
+# Frame
+1st part - Find the State with the highest quantity sales.
+2nd part - Predict the daily price for the next 30 days for that state.
+
+#Acquire
+Getting data from NHRDF Database
+
+```{r}
+setwd("C:/Users/Ashish/Desktop/GL/Day2/HomeWork")
+getwd()
+Odf = read_html("DailyWiseMarketArrivals2017.html") %>%
+html_node("#dnn_ctr966_DailyWiseMarketArrivals_GridView1") %>%
+html_table()
+Odf_1 = Odf
+str(Odf_1)
+```
+
+# Refine 
+```{r}
+col_names =  c("Date","Market","Quantity","Min_Price","Max_Price","Mod_Price")
+colnames(Odf_1) = col_names
+str(Odf_1)
+```
+
+#Transfrom
+```{r}
+Odf_2 = Odf_1
+Odf_2$Date = as.Date(Odf_1$Date, "%d/%b/%Y")
+Odf_2$Min_Price = as.numeric(Odf_2$Min_Price)
+Odf_2$Max_Price = as.numeric(Odf_2$Max_Price)
+Odf_2$Mod_Price = as.numeric(Odf_1$Mod_Price)
+str(Odf_2)
+```
+
+```{r}
+dim(Odf_2)
+Odf_3 = Odf_2 %>% filter(Market != "Total") %>% mutate(market1 = Market) %>%  separate(market1,c("city","state"), sep = "\\(")
+dim(Odf_3)
+Odf_3$state = Odf_3$state %>% str_replace("\\)","")
+head(Odf_3)
+unique(Odf_3$state)
+
+```
+
+```{r}
+# Removing NA fields from state
+Odf_4 <- Odf_3 %>% mutate(state = ifelse(is.na(state), Market, state))
+
+Odf_4 = within(Odf_4,state[state == "Telangana"] <- "TELANGANA")
+Odf_4 = within(Odf_4,state[state == "RJ" ]<- "RAJ")
+Odf_4 = within(Odf_4,state[state == "M.P."] <- "MP")
+Odf_4 = within(Odf_4,state[state == "JAIPUR"] <- "RAJ")
+Odf_4 = within(Odf_4,state[state == "MS"] <- "MAHARASHTRA")
+Odf_4 = within(Odf_4,state[state == "BANGALORE"] <- "KNT")
+Odf_4 = within(Odf_4,state[state == "MS"] <- "MAHARASHTRA")
+Odf_4 = within(Odf_4,state[state == "BHOPAL"] <- "MP")
+Odf_4 = within(Odf_4,state[state == "CHENNAI"] <- "TN")
+Odf_4 = within(Odf_4,state[state == "TN "] <- "TN")
+Odf_4 = within(Odf_4,state[state == "HYDERABAD"] <- "AP")
+Odf_4 = within(Odf_4,state[state == "LUCKNOW"] <- "UP")
+Odf_4 = within(Odf_4,state[state == "SHAHJAHANPUR"] <- "UP")
+unique(Odf_4$state)
+
+```
+
+#Explore 
+## State with Highest Quantity Sales in 2017
+```{r}
+
+sum_quantity_df <- Odf_4 %>% 
+group_by(state) %>% 
+summarize(sum_quantity = sum(Quantity),avg_price = mean(Max_Price))
+str(sum_quantity_df)
+Top_quantity = sum_quantity_df %>%
+  arrange(desc(sum_quantity))
+
+head(Top_quantity)
+
+#Visualizing data
+Top_quantity %>% head(10) %>% ggplot() + aes(state, weight = sum_quantity) + geom_bar()
+
+Top_quantity %>% head(10) %>% ggplot() + aes(state, weight = sum_quantity) + geom_bar()+coord_flip()
+
+Top_quantity %>% head(10) %>% ggplot() + aes(reorder(state,sum_quantity), weight = sum_quantity) + geom_bar()+coord_flip()
+
+str(Odf_4)
+
+p3 <- ggplot(Odf_4,
+             aes(x = state,
+                 y = Mod_Price)) + 
+        theme(legend.position="top",
+              axis.text=element_text(size = 6))
+(p4 <- p3 + geom_point(aes(color = Date),
+                       alpha = 0.5,
+                       size = 1.5,
+                       position = position_jitter(width = 0.25, height = 0)))
+
+
+```
+# This clearly shows that MAHARASHTRA is the state with highest quantity sale. 
+
+# Predicting price of Onion for state = MAHARASHTRA for next 30 days. 
+
+```{r}
+Ms_Price = Odf_4 %>% filter(state == "MAHARASHTRA") %>% group_by(Date) %>% summarise(Mod_Price_max = max(Mod_Price)) %>% select(Date,Mod_Price_max) %>% arrange(Date)
+
+
+dim(Ms_Price)
+head(Ms_Price)
+str(Ms_Price)
+
+col1 = c("ds","y")
+colnames(Ms_Price) = col1
+d =Ms_Price
+m = prophet(d)
+
+future <- make_future_dataframe(m, periods = 365)
+head(future)
+
+forecast <- predict(m, future)
+head(forecast)
+
+plot(m, forecast)
+prophet_plot_components(m, forecast)
+ 
+```
+
+
+
